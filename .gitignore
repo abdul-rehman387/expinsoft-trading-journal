@@ -3,3 +3,7 @@ dist/
 *.log
 .env
 .env.local
+
+.next/
+.env.*
+!.env.example

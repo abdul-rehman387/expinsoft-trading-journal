@@ -1,18 +1,23 @@
 # ExpinSoft Trading Journal
 
-A responsive crypto trading journal with manual trade entry, React Router navigation, account management forms, and nested settings pages. The application starts with a true zero state and contains no seeded trade records.
+Next.js App Router trading journal with Supabase SSR authentication and server-side trade queries. Dashboard: /dashboard. Journal: /trades. Existing settings, analytics, CSV import/export, profile and password screens are preserved.
 
-## Run
+## Setup
 
-```sh
-npm install
-npm run dev
-```
+1. Install dependencies with npm install.
+2. Copy .env.example to .env.local and set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY from your Supabase project. Never use a service-role key here.
+3. Run supabase/migrations/202610130001_trades.sql in your project's SQL editor (or apply it with the Supabase CLI). It creates the trades table and per-user RLS policies. The server queries rely on those policies to restrict reads.
+4. Enable email/password authentication. Set the Supabase Auth Site URL to the application's origin. For confirmation emails, configure the confirmation template link as {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email. Configure the email-change template similarly with type=email_change. Signup displays a confirmation message if email verification is enabled.
+5. Run npm run dev. Use npm test and npm run build to verify changes. After building, npm run test:ssr checks forms, server auth actions, cookie sessions, route protection and server trade queries against a local mock Supabase service. Use npm start for production.
 
-Run `npm run build` for a production build. Exchange connections remain frontend mock states. Currency preferences are informational and do not perform live conversion. No broker or backend integration is included.
+## Architecture
 
-Visit `/signup` to create the device's local account, or `/login` to sign in. Dashboard, journal, settings, and account routes require a session. The active user is stored in `expinsoft_user`; logout removes this session but preserves the account in `expinsoft_account` and journal in `expinsoft_trades`. Passwords are stored as salted PBKDF2 hashes rather than plaintext. This is browser-local authentication, not server-enforced access control; clearing browser storage removes the account and journal.
+src/utils/supabase/client.js uses createBrowserClient; server.js uses createServerClient with async cookies() and getAll/setAll (including empty-value removals). middleware.js (loaded by src/middleware.js for the src/app directory) refreshes verified auth claims, preserves refreshed cookies on redirects, and protects journal routes. Next.js 16 still supports middleware.js, although the convention is deprecated in favor of proxy.js.
 
-Manual trade creation, editing, deletion, and clearing save immediately to local storage. Data Management exports the current journal as CSV and imports the same schema, appending rows with new IDs. CSV supports quoted commas, quotes, and multiline notes. Required columns are `asset,date,exitDate,entry,exit,size,pnl`; use an exported file as a template. Invalid files are rejected before any trades are appended. Export backups to keep data outside this browser. Preferences, sync mode, and theme are also stored locally.
+The journal App Router server page verifies the user and fetches trades ordered by created_at. Shared Client Components receive the server records. Server Actions verify users, validate payloads, assign user_id from the verified session, enforce ownership on edits/deletes, and revalidate dashboard, journal, analytics and data settings. UI changes follow successful writes. CSV imports validate before one atomic insert. Profile and password updates use Supabase Auth server actions.
 
-Settings routes include `/settings/connections`, `/settings/preferences`, `/settings/data`, and `/settings/appearance`. User routes include `/profile`, `/add-user`, and `/reset-password`.
+No PocketBase or custom browser-local authentication/trade persistence remains. Theme, display preferences and mock sync settings still use browser storage. Existing local/PocketBase records are not automatically migrated; export CSV from the previous app before switching and import it after signing in. Exchange connections and the Add User screen remain frontend mock features.
+
+## Vercel
+
+Select the Next.js framework preset. Remove Vite build/output overrides (use npm run build and the default Next.js output). Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY for each intended environment, apply the SQL migration, and configure the Supabase Auth Site URL/confirmation email template for your production domain before deploying. No live credentials are included in the repository.

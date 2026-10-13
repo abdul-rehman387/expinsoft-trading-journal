@@ -1,11 +1,3 @@
-export function readStored(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export const tradeColumns = [
   "source",
   "date",
@@ -130,7 +122,6 @@ export function tradesFromCsv(text) {
         throw new Error(`Invalid market or direction in row ${index + 2}.`);
       return {
         ...t,
-        id: crypto.randomUUID(),
         source: t.source || "Imported",
         asset: t.asset.trim().toUpperCase(),
       };

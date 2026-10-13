@@ -1,14 +1,8 @@
+"use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  Routes,
-  Route,
-  Link,
-  NavLink,
-  Navigate,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import NextLink from "next/link";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
@@ -54,9 +48,37 @@ import {
 import { strategies, money } from "./data";
 import { useAuth } from "./Auth";
 import { useJournal } from "./JournalContext";
+import { updateProfile, updatePassword } from "./app/actions/auth";
+function Link({ to, children, ...props }) {
+  return (
+    <NextLink href={to} {...props}>
+      {children}
+    </NextLink>
+  );
+}
+function NavLink({ to, className, end, children, ...props }) {
+  const pathname = usePathname();
+  const isActive = end
+    ? pathname === to
+    : pathname === to || pathname.startsWith(to + "/");
+  return (
+    <Link
+      to={to}
+      className={
+        typeof className === "function" ? className({ isActive }) : className
+      }
+      {...props}
+    >
+      {children}
+    </Link>
+  );
+}
+function useLocation() {
+  return { pathname: usePathname() };
+}
 
 const mainNav = [
-  ["Dashboard", "/", LayoutDashboard],
+  ["Dashboard", "/dashboard", LayoutDashboard],
   ["Trade Log", "/trades", BookOpen],
   ["Analytics", "/analytics", ChartNoAxesCombined],
   ["Settings", "/settings/connections", Settings],
@@ -105,27 +127,44 @@ function EmptyState({ compact = false, onAdd }) {
 
 export default function Shell() {
   const { user, logout } = useAuth();
-  const { trades, setTrades, importCsv, exportCsv } = useJournal();
+  const {
+    trades,
+    loading,
+    error: journalError,
+    refresh,
+    createTrade,
+    updateTrade,
+    deleteTrade: removeTrade,
+    clearManual: removeManual,
+    importCsv,
+    exportCsv,
+  } = useJournal();
   const [editingTrade, setEditingTrade] = useState(null);
   const onEdit = (trade) => {
     setEditingTrade(trade);
     setModal(true);
   };
   const location = useLocation(),
-    navigate = useNavigate(),
-    [dark, setDark] = useState(() => localStorage.getItem("theme") !== "light"),
+    [dark, setDark] = useState(true),
     [modal, setModal] = useState(false),
     [toast, setToast] = useState(""),
     [menu, setMenu] = useState(false),
-    [syncMode, setSyncMode] = useState(
-      () => localStorage.getItem("syncMode") || "manual",
-    ),
-    [prefs, setPrefs] = useState(() =>
-      JSON.parse(
-        localStorage.getItem("tradePrefs") ||
-          '{"currency":"USDT","timezone":"UTC","fee":"0.1"}',
-      ),
-    );
+    [syncMode, setSyncMode] = useState("manual"),
+    [prefs, setPrefs] = useState({
+      currency: "USDT",
+      timezone: "UTC",
+      fee: "0.1",
+    });
+  useEffect(() => {
+    try {
+      setDark(localStorage.getItem("theme") !== "light");
+      setSyncMode(localStorage.getItem("syncMode") || "manual");
+      const saved = JSON.parse(localStorage.getItem("tradePrefs") || "null");
+      if (saved) setPrefs(saved);
+    } catch {
+      /* Use default preferences if browser storage is unavailable. */
+    }
+  }, []);
   const dropdown = useRef(null),
     isAccount = ["/profile", "/add-user", "/reset-password"].includes(
       location.pathname,
@@ -133,7 +172,7 @@ export default function Shell() {
     isSettings = location.pathname.startsWith("/settings");
   const page = isAccount
     ? titles[location.pathname.slice(1)]?.[0]
-    : location.pathname === "/"
+    : location.pathname === "/dashboard"
       ? "Dashboard"
       : location.pathname === "/trades"
         ? "Trade Log"
@@ -169,33 +208,25 @@ export default function Shell() {
       notify(error.message);
     }
   };
-  const persist = (update, message) => {
+  const persist = async (operation, message) => {
     try {
-      setTrades(update);
+      await operation();
       notify(message);
       return true;
-    } catch {
-      notify(
-        "Could not save trades. Check browser storage permissions or available space.",
-      );
+    } catch (error) {
+      notify(error.message || "Could not save trades. Please try again.");
       return false;
     }
   };
-  const addTrade = (t) => {
-    const saved = persist(
-      (v) =>
+  const addTrade = async (trade) => {
+    const saved = await persist(
+      () =>
         editingTrade
-          ? v.map((existing) =>
-              existing.id === editingTrade.id
-                ? {
-                    ...existing,
-                    ...t,
-                    id: existing.id,
-                    source: existing.source,
-                  }
-                : existing,
-            )
-          : [{ ...t, id: crypto.randomUUID(), source: "Manual" }, ...v],
+          ? updateTrade(editingTrade.id, {
+              ...trade,
+              source: editingTrade.source,
+            })
+          : createTrade({ ...trade, source: "Manual" }),
       editingTrade ? "Trade updated" : "Manual trade added",
     );
     if (saved) {
@@ -203,13 +234,8 @@ export default function Shell() {
       setEditingTrade(null);
     }
   };
-  const deleteTrade = (id) =>
-    persist((v) => v.filter((t) => t.id !== id), "Trade deleted");
-  const clearManual = () =>
-    persist(
-      (v) => v.filter((t) => t.source !== "Manual"),
-      "Manual trades cleared",
-    );
+  const deleteTrade = (id) => persist(() => removeTrade(id), "Trade deleted");
+  const clearManual = () => persist(removeManual, "Manual trades cleared");
   return (
     <div className={`app ${dark ? "dark" : "light"}`}>
       <aside className="sidebar">
@@ -321,7 +347,7 @@ export default function Shell() {
                     <Settings />
                     Settings
                   </Link>
-                  <button className="logout-link" onClick={logout}>
+                  <button className="logout-link" onClick={() => logout()}>
                     <LogOut />
                     Logout
                   </button>
@@ -331,115 +357,98 @@ export default function Shell() {
           </div>
         </header>
         <main>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <Dashboard
-                  trades={trades}
-                  currency={prefs.currency}
-                  onAdd={() => {
-                    setEditingTrade(null);
-                    setModal(true);
-                  }}
-                  onDelete={deleteTrade}
-                  onEdit={onEdit}
-                />
-              }
+          {loading && <p role="status">Loading your journal...</p>}
+          {journalError && (
+            <div className="validation-banner" role="alert">
+              {journalError}{" "}
+              <button className="secondary" onClick={refresh}>
+                Retry
+              </button>
+            </div>
+          )}
+          {location.pathname === "/dashboard" && (
+            <Dashboard
+              trades={trades}
+              currency={prefs.currency}
+              onAdd={() => {
+                setEditingTrade(null);
+                setModal(true);
+              }}
+              onDelete={deleteTrade}
+              onEdit={onEdit}
             />
-            <Route
-              path="/trades"
-              element={
-                <PageFrame
-                  title="Every execution, accounted for."
-                  text="Your journal will show manual and synced trades here."
-                  onAdd={() => {
-                    setEditingTrade(null);
-                    setModal(true);
-                  }}
-                >
-                  <TradeLog
-                    trades={trades}
-                    onAdd={() => {
-                      setEditingTrade(null);
-                      setModal(true);
-                    }}
-                    onDelete={deleteTrade}
-                    onEdit={onEdit}
-                  />
-                </PageFrame>
-              }
-            />
-            <Route
-              path="/analytics"
-              element={
-                <PageFrame
-                  title="Find the patterns behind your PnL."
-                  text="Analytics populate after your first completed trade."
-                  onAdd={() => {
-                    setEditingTrade(null);
-                    setModal(true);
-                  }}
-                >
-                  <Analytics trades={trades} />
-                </PageFrame>
-              }
-            />
-            <Route
-              path="/settings/:section"
-              element={
-                <PageFrame
-                  title="Workspace settings"
-                  text="Manage connections, defaults, data and appearance."
-                  onAdd={() => {
-                    setEditingTrade(null);
-                    setModal(true);
-                  }}
-                >
-                  <SettingsLayout
-                    syncMode={syncMode}
-                    setSyncMode={setSyncMode}
-                    prefs={prefs}
-                    setPrefs={setPrefs}
-                    dark={dark}
-                    toggleTheme={toggleTheme}
-                    exportData={exportData}
-                    importData={importData}
-                    clearManual={clearManual}
-                    manualCount={
-                      trades.filter((t) => t.source === "Manual").length
-                    }
-                    notify={notify}
-                  />
-                </PageFrame>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <AccountFrame slug="profile">
-                  <ProfilePage notify={notify} />
-                </AccountFrame>
-              }
-            />
-            <Route
-              path="/add-user"
-              element={
-                <AccountFrame slug="add-user">
-                  <AddUserPage notify={notify} />
-                </AccountFrame>
-              }
-            />
-            <Route
-              path="/reset-password"
-              element={
-                <AccountFrame slug="reset-password">
-                  <ResetPasswordPage notify={notify} />
-                </AccountFrame>
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          )}
+          {location.pathname === "/trades" && (
+            <PageFrame
+              title="Every execution, accounted for."
+              text="Your journal will show manual and synced trades here."
+              onAdd={() => {
+                setEditingTrade(null);
+                setModal(true);
+              }}
+            >
+              <TradeLog
+                trades={trades}
+                onAdd={() => {
+                  setEditingTrade(null);
+                  setModal(true);
+                }}
+                onDelete={deleteTrade}
+                onEdit={onEdit}
+              />
+            </PageFrame>
+          )}
+          {location.pathname === "/analytics" && (
+            <PageFrame
+              title="Find the patterns behind your PnL."
+              text="Analytics populate after your first completed trade."
+              onAdd={() => {
+                setEditingTrade(null);
+                setModal(true);
+              }}
+            >
+              <Analytics trades={trades} />
+            </PageFrame>
+          )}
+          {location.pathname.startsWith("/settings/") && (
+            <PageFrame
+              title="Workspace settings"
+              text="Manage connections, defaults, data and appearance."
+              onAdd={() => {
+                setEditingTrade(null);
+                setModal(true);
+              }}
+            >
+              <SettingsLayout
+                syncMode={syncMode}
+                setSyncMode={setSyncMode}
+                prefs={prefs}
+                setPrefs={setPrefs}
+                dark={dark}
+                toggleTheme={toggleTheme}
+                exportData={exportData}
+                importData={importData}
+                clearManual={clearManual}
+                manualCount={trades.filter((t) => t.source === "Manual").length}
+                notify={notify}
+              />
+            </PageFrame>
+          )}
+          {location.pathname === "/profile" && (
+            <AccountFrame slug="profile">
+              <ProfilePage notify={notify} />
+            </AccountFrame>
+          )}
+          {location.pathname === "/add-user" && (
+            <AccountFrame slug="add-user">
+              <AddUserPage notify={notify} />
+            </AccountFrame>
+          )}
+          {location.pathname === "/reset-password" && (
+            <AccountFrame slug="reset-password">
+              <ResetPasswordPage notify={notify} />
+            </AccountFrame>
+          )}
           <footer>
             <span>24/7 markets · UTC normalized</span>
             <span>ExpinSoft</span>
@@ -1086,13 +1095,24 @@ function AccountFrame({ slug, children }) {
   );
 }
 function ProfilePage({ notify }) {
-  const [form, setForm] = useState(() =>
-    JSON.parse(localStorage.getItem("userProfile") || '{"name":"","email":""}'),
-  );
-  const submit = (e) => {
+  const { user } = useAuth();
+  const [form, setForm] = useState({
+    name: user.name || "",
+    email: user.email || "",
+  });
+  const submit = async (e) => {
     e.preventDefault();
-    localStorage.setItem("userProfile", JSON.stringify(form));
-    notify("Profile updated");
+    try {
+      // Supabase confirms email changes by email.
+      await updateProfile(form);
+      if (form.email !== user.email) {
+        notify(
+          "Profile saved. Check your new email to confirm the email change.",
+        );
+      } else notify("Profile updated");
+    } catch (err) {
+      notify(err.message || "Could not update profile.");
+    }
   };
   return (
     <Card className="account-card">
@@ -1192,15 +1212,20 @@ function AddUserPage({ notify }) {
 function ResetPasswordPage({ notify }) {
   const [form, setForm] = useState({ current: "", next: "", confirm: "" }),
     [error, setError] = useState("");
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (form.next.length < 8)
       return setError("New password must contain at least 8 characters.");
     if (form.next !== form.confirm)
       return setError("New passwords do not match.");
-    setError("");
-    setForm({ current: "", next: "", confirm: "" });
-    notify("Password updated");
+    try {
+      await updatePassword(form);
+      setError("");
+      setForm({ current: "", next: "", confirm: "" });
+      notify("Password updated");
+    } catch (err) {
+      setError(err.message || "Could not update password.");
+    }
   };
   return (
     <Card className="account-card">
@@ -1276,7 +1301,8 @@ function ManualTradeModal({ defaults, trade, close, save }) {
           }
         : {}),
     }),
-    [showErrors, setShowErrors] = useState(false);
+    [showErrors, setShowErrors] = useState(false),
+    [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v })),
     valid =
       Number(form.entry) > 0 &&
@@ -1295,29 +1321,34 @@ function ManualTradeModal({ defaults, trade, close, save }) {
       Number(form.fees || 0) -
       Number(form.funding || 0)
     : null;
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setShowErrors(true);
-    if (!valid) return;
-    save({
-      date: form.entryDate,
-      exitDate: form.exitDate,
-      source: "Manual",
-      asset: form.asset.toUpperCase(),
-      market: form.market,
-      direction: form.direction,
-      leverage: Number(form.leverage),
-      entry: Number(form.entry),
-      exit: Number(form.exit),
-      size: Number(form.size),
-      strategy: form.strategy,
-      exchange: "Manual entry",
-      fees: Number(form.fees || 0),
-      funding: 0,
-      gas: Number(form.funding || 0),
-      pnl,
-      notes: form.notes,
-    });
+    if (!valid || saving) return;
+    setSaving(true);
+    try {
+      await save({
+        date: form.entryDate,
+        exitDate: form.exitDate,
+        source: "Manual",
+        asset: form.asset.toUpperCase(),
+        market: form.market,
+        direction: form.direction,
+        leverage: Number(form.leverage),
+        entry: Number(form.entry),
+        exit: Number(form.exit),
+        size: Number(form.size),
+        strategy: form.strategy,
+        exchange: "Manual entry",
+        fees: Number(form.fees || 0),
+        funding: 0,
+        gas: Number(form.funding || 0),
+        pnl,
+        notes: form.notes,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
   useEffect(() => {
     const h = (e) => e.key === "Escape" && close();
@@ -1489,7 +1520,11 @@ function ManualTradeModal({ defaults, trade, close, save }) {
             <button type="button" className="secondary" onClick={close}>
               Cancel
             </button>
-            <button type="submit" className="primary" disabled={!valid}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={!valid || saving}
+            >
               {trade ? "Save Changes" : "Save Manual Trade"}
             </button>
           </div>
