@@ -47,6 +47,26 @@ export async function login(previous, form) {
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
+export async function recoverPassword(previous, form) {
+  const password = String(form.get("password") || "");
+  if (password.length < 8 || password !== String(form.get("confirm") || "")) {
+    return { error: "Passwords must match and contain at least eight characters." };
+  }
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user) {
+      return { error: "Your recovery link has expired. Please request a new email." };
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) return { error: updateError.message };
+  } catch (error) {
+    console.error("Password Recovery Error:", error);
+    return { error: "Unable to reset your password. Please try again." };
+  }
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
 export async function signup(previous, form) {
   const name = String(form.get("name") || "").trim();
   if (!name) return { error: "Please enter your name." };

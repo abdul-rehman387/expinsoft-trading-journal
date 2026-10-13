@@ -133,7 +133,7 @@ try {
   const cookie =
     "sb-127-auth-token=base64-" +
     Buffer.from(JSON.stringify(session)).toString("base64url");
-  for (const path of ["/dashboard", "/trades", "/settings/data"]) {
+  for (const path of ["/dashboard", "/trades", "/settings/data", "/recover-password"]) {
     const denied = await fetch("http://localhost:3101" + path, {
       redirect: "manual",
     });
@@ -148,7 +148,7 @@ try {
     });
     const html = await response.text();
     assert.equal(response.status, 200, path + ": " + html.slice(0, 100));
-    assert.match(html, /Smoke Test/);
+    assert.match(html, path === "/recover-password" ? /Set a new password/ : /Smoke Test/);
     assert.doesNotMatch(html, /"digest":"[0-9]+"/);
     console.log(path + " protection and authenticated SSR: PASS");
   }

@@ -13,7 +13,7 @@ export async function GET(request) {
     if (!error)
       return NextResponse.redirect(
         new URL(
-          type === "recovery" ? "/reset-password" : "/dashboard",
+          type === "recovery" ? "/recover-password" : "/dashboard",
           url.origin,
         ),
       );
