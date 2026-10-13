@@ -31,10 +31,17 @@ export async function signup(previous, form) {
 }
 export async function logout() {
   const supabase = await createClient();
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
   if (error) throw new Error(error.message);
   revalidatePath("/", "layout");
   redirect("/login");
+}
+export async function createAnotherAccount() {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  if (error) throw new Error(error.message);
+  revalidatePath("/", "layout");
+  redirect("/signup");
 }
 export async function updateProfile(form) {
   const supabase = await createClient();

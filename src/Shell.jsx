@@ -48,7 +48,11 @@ import {
 import { strategies, money } from "./data";
 import { useAuth } from "./Auth";
 import { useJournal } from "./JournalContext";
-import { updateProfile, updatePassword } from "./app/actions/auth";
+import {
+  updateProfile,
+  updatePassword,
+  createAnotherAccount,
+} from "./app/actions/auth";
 function Link({ to, children, ...props }) {
   return (
     <NextLink href={to} {...props}>
@@ -335,10 +339,14 @@ export default function Shell() {
                     <UserRound />
                     Profile
                   </Link>
-                  <Link to="/add-user">
+                  <button onClick={() => logout()}>
+                    <UserRound />
+                    Switch account
+                  </button>
+                  <button onClick={() => createAnotherAccount()}>
                     <UserPlus />
-                    Add User
-                  </Link>
+                    Create another account
+                  </button>
                   <Link to="/reset-password">
                     <KeyRound />
                     Reset Password

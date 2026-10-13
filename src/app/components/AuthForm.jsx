@@ -14,6 +14,10 @@ export default function AuthForm({ register = false }) {
           ExpinSoft<span>TRADING JOURNAL</span>
         </Link>
         <h1>{register ? "Create your account" : "Welcome back"}</h1>
+        <p className="auth-note">
+          Use your own email and password. Multiple people can use this device;
+          each account has its own journal.
+        </p>
         <form action={action}>
           {register && (
             <label>

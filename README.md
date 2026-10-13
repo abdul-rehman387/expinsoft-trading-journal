@@ -21,3 +21,7 @@ No PocketBase or custom browser-local authentication/trade persistence remains. 
 ## Vercel
 
 Select the Next.js framework preset. Remove Vite build/output overrides (use npm run build and the default Next.js output). Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY for each intended environment, apply the SQL migration, and configure the Supabase Auth Site URL/confirmation email template for your production domain before deploying. No live credentials are included in the repository.
+
+## Shared devices
+
+The account menu offers Switch account and Create another account. Both end only the current session before opening login or signup. Any number of accounts can use one device with distinct email addresses; one account is active per browser session. Journal state resets when the user changes, and database RLS keeps records private to each user. Use separate browser profiles for simultaneous sessions.

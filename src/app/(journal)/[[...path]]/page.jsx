@@ -36,7 +36,7 @@ export default async function Page({ params }) {
     .select("*")
     .order("created_at", { ascending: false });
   return (
-    <AuthProvider user={user}>
+    <AuthProvider key={user.id} user={user}>
       <JournalProvider
         initialTrades={trades || []}
         initialError={error?.message || ""}
