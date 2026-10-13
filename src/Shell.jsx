@@ -51,7 +51,9 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { initialTrades, strategies, money } from "./data";
+import { strategies, money } from "./data";
+import { useAuth } from "./Auth";
+import { useJournal } from "./JournalContext";
 
 const mainNav = [
   ["Dashboard", "/", LayoutDashboard],
@@ -102,10 +104,16 @@ function EmptyState({ compact = false, onAdd }) {
 }
 
 export default function Shell() {
+  const { user, logout } = useAuth();
+  const { trades, setTrades, importCsv, exportCsv } = useJournal();
+  const [editingTrade, setEditingTrade] = useState(null);
+  const onEdit = (trade) => {
+    setEditingTrade(trade);
+    setModal(true);
+  };
   const location = useLocation(),
     navigate = useNavigate(),
     [dark, setDark] = useState(() => localStorage.getItem("theme") !== "light"),
-    [trades, setTrades] = useState(initialTrades),
     [modal, setModal] = useState(false),
     [toast, setToast] = useState(""),
     [menu, setMenu] = useState(false),
@@ -151,49 +159,57 @@ export default function Shell() {
       return !v;
     });
   const exportData = () => {
-    const keys = [
-      "source",
-      "date",
-      "exitDate",
-      "asset",
-      "market",
-      "direction",
-      "entry",
-      "exit",
-      "size",
-      "fees",
-      "funding",
-      "gas",
-      "strategy",
-      "pnl",
-      "notes",
-    ];
-    const csv = [keys, ...trades.map((t) => keys.map((k) => t[k] ?? ""))]
-      .map((r) =>
-        r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","),
-      )
-      .join("\n");
-    const u = URL.createObjectURL(new Blob([csv])),
-      a = document.createElement("a");
-    a.href = u;
-    a.download = "expinsoft-journal.csv";
-    a.click();
-    URL.revokeObjectURL(u);
+    exportCsv();
     notify("Journal exported");
   };
+  const importData = async (file) => {
+    try {
+      notify(`Imported ${await importCsv(file)} trades`);
+    } catch (error) {
+      notify(error.message);
+    }
+  };
+  const persist = (update, message) => {
+    try {
+      setTrades(update);
+      notify(message);
+      return true;
+    } catch {
+      notify(
+        "Could not save trades. Check browser storage permissions or available space.",
+      );
+      return false;
+    }
+  };
   const addTrade = (t) => {
-    setTrades((v) => [{ ...t, id: Date.now(), source: "Manual" }, ...v]);
-    setModal(false);
-    notify("Manual trade added");
+    const saved = persist(
+      (v) =>
+        editingTrade
+          ? v.map((existing) =>
+              existing.id === editingTrade.id
+                ? {
+                    ...existing,
+                    ...t,
+                    id: existing.id,
+                    source: existing.source,
+                  }
+                : existing,
+            )
+          : [{ ...t, id: crypto.randomUUID(), source: "Manual" }, ...v],
+      editingTrade ? "Trade updated" : "Manual trade added",
+    );
+    if (saved) {
+      setModal(false);
+      setEditingTrade(null);
+    }
   };
-  const deleteTrade = (id) => {
-    setTrades((v) => v.filter((t) => t.id !== id));
-    notify("Trade deleted");
-  };
-  const clearManual = () => {
-    setTrades((v) => v.filter((t) => t.source !== "Manual"));
-    notify("Manual trades cleared");
-  };
+  const deleteTrade = (id) =>
+    persist((v) => v.filter((t) => t.id !== id), "Trade deleted");
+  const clearManual = () =>
+    persist(
+      (v) => v.filter((t) => t.source !== "Manual"),
+      "Manual trades cleared",
+    );
   return (
     <div className={`app ${dark ? "dark" : "light"}`}>
       <aside className="sidebar">
@@ -259,9 +275,16 @@ export default function Shell() {
                 aria-expanded={menu}
                 onClick={() => setMenu(!menu)}
               >
-                <span className="avatar small">AK</span>
+                <span className="avatar small">
+                  {user.name
+                    .split(/\s+/)
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")
+                    .toUpperCase()}
+                </span>
                 <span>
-                  <strong>Alex Khan</strong>
+                  <strong>{user.name}</strong>
                   <small>Administrator</small>
                 </span>
                 <ChevronDown />
@@ -269,10 +292,17 @@ export default function Shell() {
               {menu && (
                 <div className="user-dropdown" role="menu">
                   <div className="dropdown-user">
-                    <span className="avatar">AK</span>
+                    <span className="avatar">
+                      {user.name
+                        .split(/\s+/)
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")
+                        .toUpperCase()}
+                    </span>
                     <div>
-                      <strong>Alex Khan</strong>
-                      <small>alex@example.com</small>
+                      <strong>{user.name}</strong>
+                      <small>{user.email}</small>
                     </div>
                   </div>
                   <Link to="/profile">
@@ -291,10 +321,7 @@ export default function Shell() {
                     <Settings />
                     Settings
                   </Link>
-                  <button
-                    className="logout-link"
-                    onClick={() => notify("Logged out (demo)")}
-                  >
+                  <button className="logout-link" onClick={logout}>
                     <LogOut />
                     Logout
                   </button>
@@ -311,8 +338,12 @@ export default function Shell() {
                 <Dashboard
                   trades={trades}
                   currency={prefs.currency}
-                  onAdd={() => setModal(true)}
+                  onAdd={() => {
+                    setEditingTrade(null);
+                    setModal(true);
+                  }}
                   onDelete={deleteTrade}
+                  onEdit={onEdit}
                 />
               }
             />
@@ -322,12 +353,19 @@ export default function Shell() {
                 <PageFrame
                   title="Every execution, accounted for."
                   text="Your journal will show manual and synced trades here."
-                  onAdd={() => setModal(true)}
+                  onAdd={() => {
+                    setEditingTrade(null);
+                    setModal(true);
+                  }}
                 >
                   <TradeLog
                     trades={trades}
-                    onAdd={() => setModal(true)}
+                    onAdd={() => {
+                      setEditingTrade(null);
+                      setModal(true);
+                    }}
                     onDelete={deleteTrade}
+                    onEdit={onEdit}
                   />
                 </PageFrame>
               }
@@ -338,7 +376,10 @@ export default function Shell() {
                 <PageFrame
                   title="Find the patterns behind your PnL."
                   text="Analytics populate after your first completed trade."
-                  onAdd={() => setModal(true)}
+                  onAdd={() => {
+                    setEditingTrade(null);
+                    setModal(true);
+                  }}
                 >
                   <Analytics trades={trades} />
                 </PageFrame>
@@ -350,7 +391,10 @@ export default function Shell() {
                 <PageFrame
                   title="Workspace settings"
                   text="Manage connections, defaults, data and appearance."
-                  onAdd={() => setModal(true)}
+                  onAdd={() => {
+                    setEditingTrade(null);
+                    setModal(true);
+                  }}
                 >
                   <SettingsLayout
                     syncMode={syncMode}
@@ -360,6 +404,7 @@ export default function Shell() {
                     dark={dark}
                     toggleTheme={toggleTheme}
                     exportData={exportData}
+                    importData={importData}
                     clearManual={clearManual}
                     manualCount={
                       trades.filter((t) => t.source === "Manual").length
@@ -404,6 +449,7 @@ export default function Shell() {
       {modal && (
         <ManualTradeModal
           defaults={prefs}
+          trade={editingTrade}
           close={() => setModal(false)}
           save={addTrade}
         />
@@ -436,7 +482,7 @@ function PageFrame({ title, text, onAdd, children }) {
     </>
   );
 }
-function Dashboard({ trades, currency, onAdd, onDelete }) {
+function Dashboard({ trades, currency, onAdd, onDelete, onEdit }) {
   const total = trades.reduce((s, t) => s + t.pnl, 0),
     wins = trades.filter((t) => t.pnl > 0).length,
     loss = Math.abs(
@@ -561,7 +607,11 @@ function Dashboard({ trades, currency, onAdd, onDelete }) {
             </div>
           </div>
           {trades.length ? (
-            <TradeTable trades={trades.slice(0, 5)} onDelete={onDelete} />
+            <TradeTable
+              trades={trades.slice(0, 5)}
+              onDelete={onDelete}
+              onEdit={onEdit}
+            />
           ) : (
             <EmptyState onAdd={onAdd} />
           )}
@@ -571,7 +621,7 @@ function Dashboard({ trades, currency, onAdd, onDelete }) {
   );
 }
 
-function TradeLog({ trades, onAdd, onDelete }) {
+function TradeLog({ trades, onAdd, onDelete, onEdit }) {
   const [q, setQ] = useState("");
   const rows = trades.filter((t) =>
     (t.asset + t.notes).toLowerCase().includes(q.toLowerCase()),
@@ -589,14 +639,14 @@ function TradeLog({ trades, onAdd, onDelete }) {
         </label>
       </div>
       {rows.length ? (
-        <TradeTable trades={rows} onDelete={onDelete} />
+        <TradeTable trades={rows} onDelete={onDelete} onEdit={onEdit} />
       ) : (
         <EmptyState onAdd={onAdd} />
       )}
     </Card>
   );
 }
-function TradeTable({ trades, onDelete }) {
+function TradeTable({ trades, onDelete, onEdit }) {
   return (
     <div className="table-scroll">
       <table>
@@ -649,7 +699,7 @@ function TradeTable({ trades, onDelete }) {
                 {money(t.pnl)}
               </td>
               <td className="trade-actions-cell">
-                <TradeActions trade={t} onDelete={onDelete} />
+                <TradeActions trade={t} onDelete={onDelete} onEdit={onEdit} />
               </td>
             </tr>
           ))}
@@ -659,7 +709,7 @@ function TradeTable({ trades, onDelete }) {
   );
 }
 
-function TradeActions({ trade, onDelete }) {
+function TradeActions({ trade, onDelete, onEdit }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const triggerRef = useRef(null);
@@ -727,7 +777,7 @@ function TradeActions({ trade, onDelete }) {
             <button
               type="button"
               onClick={() => {
-                console.log("Edit trade", trade.id);
+                onEdit(trade);
                 setOpen(false);
               }}
             >
@@ -918,13 +968,13 @@ function Preferences({ prefs, setPrefs, notify }) {
     </>
   );
 }
-function DataManagement({ exportData, clearManual, manualCount, notify }) {
+function DataManagement({ exportData, importData, clearManual, manualCount }) {
   return (
     <>
       <SettingsHeader
         eyebrow="DATA MANAGEMENT"
         title="Import, export and reset"
-        text="Your journal is currently empty and ready for real data."
+        text="Back up your journal or import a previously exported CSV."
       />
       <div className="data-actions">
         <div>
@@ -933,17 +983,18 @@ function DataManagement({ exportData, clearManual, manualCount, notify }) {
           </span>
           <div>
             <h3>Import trades</h3>
-            <p>Upload a supported exchange CSV.</p>
+            <p>Upload an ExpinSoft journal CSV.</p>
           </div>
           <label className="secondary file-button">
             Choose CSV
             <input
               type="file"
               accept=".csv"
-              onChange={(e) =>
-                e.target.files[0] &&
-                notify(`${e.target.files[0].name} selected`)
-              }
+              onChange={async (e) => {
+                const file = e.target.files[0];
+                e.target.value = "";
+                if (file) await importData(file);
+              }}
             />
           </label>
         </div>
@@ -1202,7 +1253,7 @@ function ResetPasswordPage({ notify }) {
   );
 }
 
-function ManualTradeModal({ defaults, close, save }) {
+function ManualTradeModal({ defaults, trade, close, save }) {
   const [form, setForm] = useState({
       market: "Spot",
       asset: "",
@@ -1217,6 +1268,13 @@ function ManualTradeModal({ defaults, close, save }) {
       strategy: "Breakout",
       notes: "",
       leverage: "1",
+      ...(trade
+        ? {
+            ...trade,
+            entryDate: trade.date,
+            funding: Number(trade.funding || 0) + Number(trade.gas || 0),
+          }
+        : {}),
     }),
     [showErrors, setShowErrors] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v })),
@@ -1275,7 +1333,7 @@ function ManualTradeModal({ defaults, close, save }) {
               <UserRound />
               MANUAL ENTRY
             </span>
-            <h2>Add Manual Trade</h2>
+            <h2>{trade ? "Edit Trade" : "Add Manual Trade"}</h2>
             <p>Record a real execution in your journal.</p>
           </div>
           <button type="button" className="modal-close" onClick={close}>
@@ -1432,7 +1490,7 @@ function ManualTradeModal({ defaults, close, save }) {
               Cancel
             </button>
             <button type="submit" className="primary" disabled={!valid}>
-              Save Manual Trade
+              {trade ? "Save Changes" : "Save Manual Trade"}
             </button>
           </div>
         </form>
