@@ -8,7 +8,28 @@ export async function login(previous, form) {
     email: String(form.get("email")).trim(),
     password: String(form.get("password")),
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("Supabase Auth Error:", error.message);
+    if (
+      error.code === "email_not_confirmed" ||
+      /email.*not confirmed/i.test(error.message)
+    ) {
+      return {
+        error:
+          "Please confirm your email address or check your Supabase Auth settings.",
+      };
+    }
+    if (
+      error.message === "Invalid login credentials" ||
+      error.code === "invalid_credentials"
+    ) {
+      return {
+        error:
+          "Invalid login credentials. Please check your email and password.",
+      };
+    }
+    return { error: error.message };
+  }
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
