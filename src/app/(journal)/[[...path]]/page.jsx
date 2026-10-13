@@ -38,7 +38,8 @@ export default async function Page({ params }) {
   // Keep redirects outside try/catch: Next.js implements them by throwing.
   if (!user) redirect("/login");
 
-  let trades;
+  let trades = [];
+  let tradesError = "";
   try {
     const { data, error } = await supabase
       .from("trades")
@@ -48,11 +49,14 @@ export default async function Page({ params }) {
     trades = data;
   } catch (error) {
     console.error("Data Fetch Error:", error);
-    return <div>Error loading trades. Please check connection.</div>;
+    tradesError =
+      error.code === "PGRST205" || error.code === "42P01"
+        ? "Your trades database is not set up yet. Ask the administrator to apply the trades migration in Supabase."
+        : "Trades could not be loaded. Dashboard totals are unavailable until the connection is restored.";
   }
   return (
     <AuthProvider key={user.id} user={user}>
-      <JournalProvider initialTrades={trades || []} initialError="">
+      <JournalProvider initialTrades={trades || []} initialError={tradesError}>
         <Shell />
       </JournalProvider>
     </AuthProvider>

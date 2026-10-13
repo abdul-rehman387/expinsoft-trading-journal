@@ -2,6 +2,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 const requests = [];
+let tradesUnavailable = false;
 const user = {
   id: "11111111-1111-4111-8111-111111111111",
   aud: "authenticated",
@@ -41,7 +42,12 @@ const backend = http.createServer((req, res) => {
   )
     res.end(JSON.stringify(session));
   else if (req.url.startsWith("/auth/v1/user")) res.end(JSON.stringify(user));
-  else if (req.url.startsWith("/rest/v1/trades")) res.end("[]");
+  else if (req.url.startsWith("/rest/v1/trades")) {
+    if (tradesUnavailable) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ code: "PGRST205", message: "Missing trades table" }));
+    } else res.end("[]");
+  }
   else {
     res.statusCode = 404;
     res.end("{}");
@@ -153,6 +159,16 @@ try {
     JSON.stringify(requests),
   );
   console.log("Server trade query ordered newest first: PASS");
+  tradesUnavailable = true;
+  const fallback = await fetch("http://localhost:3101/dashboard", {
+    headers: { cookie },
+  });
+  const fallbackHtml = await fallback.text();
+  assert.equal(fallback.status, 200);
+  assert.match(fallbackHtml, /Smoke Test/);
+  assert.match(fallbackHtml, /Your trades database is not set up yet/);
+  assert.doesNotMatch(fallbackHtml, /"digest":"[0-9]+"/);
+  console.log("Dashboard stays visible when trades database fails: PASS");
 } catch (error) {
   console.error(logs, requests);
   throw error;
