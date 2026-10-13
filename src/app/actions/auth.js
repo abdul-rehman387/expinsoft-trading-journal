@@ -3,11 +3,22 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "../../utils/supabase/server";
 export async function login(previous, form) {
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
-    email: String(form.get("email")).trim(),
-    password: String(form.get("password")),
-  });
+  let result;
+  try {
+    const supabase = await createClient();
+    result = await supabase.auth.signInWithPassword({
+      email: String(form.get("email") || "").trim(),
+      password: String(form.get("password") || ""),
+    });
+  } catch (error) {
+    console.error("Supabase Login Error:", error);
+    return {
+      error: error.code === "SUPABASE_CONFIG_ERROR"
+        ? "Sign-in is unavailable because Supabase is not configured. Please contact the administrator."
+        : "Unable to connect to sign-in. Please try again shortly.",
+    };
+  }
+  const { data, error } = result;
   if (error) {
     console.error("Supabase Auth Error:", error.message);
     if (
@@ -30,18 +41,28 @@ export async function login(previous, form) {
     }
     return { error: error.message };
   }
+  if (!data?.session || !data?.user) {
+    return { error: "Sign-in did not create a session. Please try again." };
+  }
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
 export async function signup(previous, form) {
-  const supabase = await createClient();
   const name = String(form.get("name") || "").trim();
   if (!name) return { error: "Please enter your name." };
-  const { data, error } = await supabase.auth.signUp({
-    email: String(form.get("email")).trim(),
-    password: String(form.get("password")),
-    options: { data: { name } },
-  });
+  let result;
+  try {
+    const supabase = await createClient();
+    result = await supabase.auth.signUp({
+      email: String(form.get("email") || "").trim(),
+      password: String(form.get("password") || ""),
+      options: { data: { name } },
+    });
+  } catch (error) {
+    console.error("Supabase Signup Error:", error);
+    return { error: "Unable to create your account. Please check the Supabase configuration or try again shortly." };
+  }
+  const { data, error } = result;
   if (error) return { error: error.message };
   if (!data.session)
     return {
