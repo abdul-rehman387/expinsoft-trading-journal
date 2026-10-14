@@ -2,6 +2,24 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "../../utils/supabase/server";
+export async function forgotPassword(previous, form) {
+  const email = String(form.get("email") || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Please enter a valid email address." };
+  }
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) {
+      console.error("Password Reset Email Error:", error);
+      return { error: "Unable to send a reset email. Please try again shortly." };
+    }
+    return { message: "If an account exists for this email, you will receive a password reset link. Check your inbox and spam folder." };
+  } catch (error) {
+    console.error("Password Reset Email Error:", error);
+    return { error: "Unable to send a reset email. Please try again shortly." };
+  }
+}
 export async function login(previous, form) {
   let result;
   try {

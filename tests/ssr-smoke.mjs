@@ -42,6 +42,7 @@ const backend = http.createServer((req, res) => {
   )
     res.end(JSON.stringify(session));
   else if (req.url.startsWith("/auth/v1/user")) res.end(JSON.stringify(user));
+  else if (req.url.startsWith("/auth/v1/recover")) res.end("{}");
   else if (req.url.startsWith("/rest/v1/trades")) {
     if (tradesUnavailable) {
       res.statusCode = 404;
@@ -83,13 +84,15 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  for (const path of ["/login", "/signup"]) {
+  for (const path of ["/login", "/signup", "/forgot-password"]) {
     const response = await fetch("http://localhost:3101" + path);
     assert.equal(response.status, 200);
-    assert.match(await response.text(), /name="email"/);
+    const html = await response.text();
+    assert.match(html, /name="email"/);
+    if (path !== "/forgot-password") assert.match(html, /Forgot password\?/);
     console.log(path + " auth form: PASS");
   }
-  for (const path of ["/login", "/signup"]) {
+  for (const path of ["/login", "/signup", "/forgot-password"]) {
     const page = await fetch("http://localhost:3101" + path);
     const html = await page.text();
     const form = new FormData();
@@ -115,6 +118,13 @@ try {
       headers: { Origin: "http://localhost:3101" },
       redirect: "manual",
     });
+    if (path === "/forgot-password") {
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /If an account exists for this email/);
+      assert(requests.some((url) => url.startsWith("/auth/v1/recover")));
+      console.log("Password recovery email request: PASS");
+      continue;
+    }
     assert.equal(response.status, 303);
     assert.equal(
       new URL(response.headers.get("location"), "http://localhost:3101")

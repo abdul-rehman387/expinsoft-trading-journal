@@ -22,6 +22,18 @@ No PocketBase or custom browser-local authentication/trade persistence remains. 
 
 Select the Next.js framework preset. Remove Vite build/output overrides (use npm run build and the default Next.js output). Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY for each intended environment, apply the SQL migration, and configure the Supabase Auth Site URL/confirmation email template for your production domain before deploying. No live credentials are included in the repository.
 
+## Password recovery
+
+The signup and login pages link to /forgot-password. This sends a Supabase recovery email; /auth/confirm verifies its token and opens /recover-password to set a new password, then redirects to the dashboard.
+
+In Supabase Authentication URL Configuration, set Site URL to https://expinsoft-trading-journal.vercel.app for production. In the Reset Password email template use:
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery">Reset password</a>
+```
+
+Request a fresh email after changing these settings. A PostgreSQL connection string is only needed for direct database tools or migrations; this app uses the Supabase URL and publishable key for authentication and its Data API. Supabase Agent Skills are optional tooling and are not required to run the app.
+
 ## Shared devices
 
 The account menu offers Switch account and Create another account. Both end only the current session before opening login or signup. Any number of accounts can use one device with distinct email addresses; one account is active per browser session. Journal state resets when the user changes, and database RLS keeps records private to each user. Use separate browser profiles for simultaneous sessions.

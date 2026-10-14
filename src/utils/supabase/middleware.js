@@ -26,7 +26,7 @@ export async function updateSession(request) {
     },
   );
   const { data, error } = await supabase.auth.getClaims();
-  const publicRoute = ["/login", "/signup", "/auth/confirm"].includes(
+  const publicRoute = ["/login", "/signup", "/forgot-password", "/auth/confirm"].includes(
     request.nextUrl.pathname,
   );
   if ((error || !data?.claims) && !publicRoute) {
